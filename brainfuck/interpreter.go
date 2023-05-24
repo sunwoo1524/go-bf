@@ -1,75 +1,136 @@
 package interpreter
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"os"
 	"unicode/utf8"
 )
 
-func RunProgram(code string) {
-	const mem_size int = 30000
+const (
+	dec_ptr = iota
+	inc_ptr
 
-	line := 0
-	column := 0
-	brackets := [][3]int{}
-	memory := [mem_size]uint8{}
-	pointer := 0
+	decrease
+	increase
 
-	for index := 0; index < utf8.RuneCountInString(code); index++ {
-		switch string(code[index]) {
+	output
+	input
+
+	loop_start
+	loop_end
+)
+
+const mem_size int = 30000
+
+var ptr int = 0
+var memory [mem_size]uint8 = [mem_size]uint8{}
+
+func Compile(code string) (compiled [][2]int, err error) {
+	stack := []int{}
+	i := 0
+
+	for n := 0; n < utf8.RuneCountInString(code); n++ {
+		switch string([]rune(code)[n]) {
 		case "<":
-			pointer--
-
-			if pointer < 0 {
-				pointer = mem_size - 1
-			}
+			compiled = append(compiled, [2]int{dec_ptr, 0})
 		case ">":
-			pointer++
+			compiled = append(compiled, [2]int{inc_ptr, 0})
 
-			if pointer >= mem_size {
-				pointer = 0
-			}
 		case "-":
-			if memory[pointer] == 0 {
-				memory[pointer] = 255
-			} else {
-				memory[pointer]--
-			}
+			compiled = append(compiled, [2]int{decrease, 0})
 		case "+":
-			if memory[pointer] == 255 {
-				memory[pointer] = 0
-			} else {
-				memory[pointer]++
-			}
+			compiled = append(compiled, [2]int{increase, 0})
+
 		case ".":
-			fmt.Printf("%s", string(memory[pointer]))
+			compiled = append(compiled, [2]int{output, 0})
 		case ",":
-			// var input string
-			// fmt.Scanf("%s", &input)
+			compiled = append(compiled, [2]int{input, 0})
 
-			// memory[pointer] = int(input)
 		case "[":
-			brackets = append(brackets, [3]int{index, line, column})
+			compiled = append(compiled, [2]int{loop_start, 0})
+			stack = append(stack, i)
 		case "]":
-			if memory[pointer] != 0 {
-				if len(brackets) == 0 {
-					fmt.Printf("Brainf**king Error: SyntaxError %d:%d", line+1, column+1)
-					return
-				} else {
-					start_bracket := brackets[len(brackets)-1]
-					index = start_bracket[0] - 1
-					line = start_bracket[1]
-					column = start_bracket[2] - 1
-				}
+			if len(stack) == 0 {
+				return nil, errors.New("brainf**king syntax error")
 			}
 
-			brackets = brackets[:len(brackets)-1]
-
-			fallthrough
-		case "\n":
-			line++
-			column = -1
+			compiled = append(compiled, [2]int{loop_end, stack[len(stack)-1]})
+			compiled[stack[len(stack)-1]][1] = i
+			stack = stack[:len(stack)-1]
+		default:
+			i--
 		}
 
-		column++
+		i++
+	}
+
+	if len(stack) != 0 {
+		return nil, errors.New("brainf**king syntax error")
+	}
+
+	return
+}
+
+func Execute(code string) {
+	program, err := Compile(code)
+
+	if program == nil {
+		panic(err)
+	}
+
+	for i := 0; i < len(program); i++ {
+		e := program[i]
+
+		switch e[0] {
+		case dec_ptr:
+			if ptr <= 0 {
+				ptr = mem_size - 1
+				break
+			}
+
+			ptr--
+		case inc_ptr:
+			if ptr >= mem_size-1 {
+				ptr = 0
+				break
+			}
+
+			ptr++
+
+		case decrease:
+			if memory[ptr] <= 0 {
+				memory[ptr] = 255
+				break
+			}
+
+			memory[ptr]--
+		case increase:
+			if memory[ptr] >= 255 {
+				memory[ptr] = 0
+				break
+			}
+
+			memory[ptr]++
+
+		case output:
+			fmt.Printf("%s", string(memory[ptr]))
+		case input:
+			in := bufio.NewReader(os.Stdin)
+			line, _ := in.ReadString('\n')
+			memory[ptr] = []byte(line)[0]
+
+		case loop_start:
+			if memory[ptr] == 0 {
+				i = e[1] - 1
+			}
+		case loop_end:
+			if memory[ptr] != 0 {
+				i = e[1] - 1
+			}
+		}
+
+		// fmt.Printf("%d, %d, %d, %d, %d\n", memory[0], memory[1], memory[2], memory[3], memory[4])
 	}
 }
